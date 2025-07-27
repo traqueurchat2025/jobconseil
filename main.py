@@ -1,82 +1,90 @@
 import streamlit as st
-from supabase import create_client, Client
-import urllib.parse
-from auth import login
-import openai
+import requests
+import os
+from supabase import create_client
 
-# 🎯 Clés secrètes depuis secrets.toml
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+# Configuration Supabase
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# 🔧 Initialiser Supabase et OpenAI
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-openai.api_key = OPENAI_API_KEY
+# Authentification utilisateur
+def connexion_utilisateur():
+    st.sidebar.title("🔐 Connexion")
+    email = st.sidebar.text_input("📧 Email")
+    if st.sidebar.button("📨 Envoyer un lien magique"):
+        try:
+            supabase.auth.sign_in_with_otp({"email": email})
+            st.success("📩 Lien envoyé ! Vérifie ta boîte mail.")
+        except Exception as e:
+            st.error(f"Erreur d'envoi : {e}")
 
-# ✅ Authentification avec lien magique
-query_params = st.query_params
-access_token = query_params.get("access_token", None)
+connexion_utilisateur()
 
-if access_token:
-    try:
-        user = supabase.auth.get_user(access_token).user
-        st.session_state["user"] = user
-        st.success(f"👋 Bienvenue, {user['email']} !")
-    except Exception as e:
-        st.warning("⚠️ Erreur lors de la connexion avec le token.")
+# Page principale
+st.title("💼 JobConseil – Assistant Emploi IA 🇫🇷")
+st.markdown("Trouvez un emploi, un métier, ou rédigez une lettre avec l'IA.")
 
-# ⏱️ Afficher la barre latérale
-st.sidebar.title("👤 Mon compte")
-if "user" in st.session_state:
-    st.sidebar.success(f"Connecté : {st.session_state['user']['email']}")
-    if st.sidebar.button("Se déconnecter"):
-        st.session_state.clear()
-        st.experimental_rerun()
-else:
-    login()
+# Authentification à l’API Pôle Emploi
+@st.cache_data(ttl=3600)
+def get_access_token():
+    client_id = os.getenv("PE_CLIENT_ID")
+    client_secret = os.getenv("PE_CLIENT_SECRET")
 
-# 🏠 Accueil principal
-st.title("Bienvenue sur JobConseil 👋")
-st.markdown("""
-Votre assistant intelligent pour :
-- 🤖 Trouver des réponses sur le droit du travail  
-- 📄 Créer un CV professionnel  
-- ✉️ Rédiger une lettre de motivation  
-- 🔍 Rechercher des offres d'emploi en direct
-""")
+    url = "https://entreprise.pole-emploi.fr/connexion/oauth2/access_token?realm=/partenaire"
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "scope": "api_offresdemploiv2 o2dsoffre"
+    }
 
-# 💬 Assistant IA si connecté
-if "user" in st.session_state:
-    st.header("Assistant IA")
-    question = st.text_input("Posez votre question (droit du travail, CV, etc.)")
-    if st.button("Envoyer") or st.session_state.get("send_with_enter"):
-        if question:
-            with st.spinner("⏳ L'assistant réfléchit..."):
-                try:
-                    model = "gpt-4" if st.session_state['user']['email'].endswith("@premium.com") else "gpt-3.5-turbo"
-                    response = openai.ChatCompletion.create(
-                        model=model,
-                        messages=[
-                            {"role": "system", "content": "Tu es un expert du droit du travail français, création de CV, lettres et offres d'emploi."},
-                            {"role": "user", "content": question}
-                        ]
-                    )
-                    st.success("Réponse IA :")
-                    st.write(response["choices"][0]["message"]["content"])
-                except Exception as e:
-                    st.error(f"Erreur IA : {e}")
-else:
-    st.info("🔐 Connectez-vous pour accéder à l'assistant IA")
+    response = requests.post(url, headers=headers, data=data)
+    if response.status_code == 200:
+        return response.json().get("access_token")
+    else:
+        st.error("❌ Erreur lors de la récupération du token Pôle Emploi")
+        return None
 
-# 📊 Comparatif des offres
-st.markdown("""
-## Nos Offres
-| Fonctionnalité                        | Gratuit | Premium |
-|--------------------------------------|:-------:|:-------:|
-| Assistant IA (droit, CV, lettres…)    |   ✅    |   ✅    |
-| Générateur de CV / lettres            |   ✅    |   ✅    |
-| Historique des conversations          |   ❌    |   ✅    |
-| GPT-4 Turbo                           |   ❌    |   ✅    |
-| Support prioritaire                   |   ❌    |   ✅    |
-| **Prix**                              |  0 €    | 9,99 €/mois |
-""")
+# Fonction de recherche
+def rechercher_offres(token, mot_cle, code_commune="75001", rayon=10):
+    url = f"https://api.pole-emploi.io/partenaire/offresdemploi/v2/offres/search"
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {
+        "motsCles": mot_cle,
+        "codeCommune": code_commune,
+        "rayon": rayon,
+        "tempsPlein": "true",
+        "range": "0-10"
+    }
+
+    response = requests.get(url, headers=headers, params=params)
+    if response.status_code == 200:
+        return response.json().get("resultats", [])
+    else:
+        st.error("❌ Erreur lors de la recherche d’offres")
+        return []
+
+# Interface recherche
+st.subheader("🔍 Recherche d'offres d'emploi")
+
+mot_cle = st.text_input("🔤 Métier recherché", "aide-soignant")
+ville = st.text_input("📍 Code postal ou commune", "75001")
+rayon = st.slider("📏 Rayon (km)", 0, 100, 10)
+
+if st.button("🔎 Lancer la recherche"):
+    token = get_access_token()
+    if token:
+        offres = rechercher_offres(token, mot_cle, code_commune=ville, rayon=rayon)
+        if offres:
+            st.success(f"{len(offres)} offre(s) trouvée(s) :")
+            for offre in offres:
+                st.markdown(f"### {offre['intitule']}")
+                st.markdown(f"📍 {offre.get('lieuTravail', {}).get('libelle', 'Lieu inconnu')}")
+                st.markdown(f"📝 {offre.get('description', '')[:300]}...")
+                url = offre.get('origineOffre', {}).get('urlOrigine', '#')
+                st.markdown(f"[👉 Voir l'offre sur Pôle Emploi]({url})", unsafe_allow_html=True)
+                st.markdown("---")
+        else:
+            st.warning("Aucune offre trouvée.")
