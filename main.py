@@ -1,36 +1,65 @@
 import streamlit as st
 import openai
+from supabase import create_client
 
-# 🔐 Simulation simple : premium si email finit par "@pro.fr"
+# 📦 Supabase config
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# 🧠 Vérifie si l'utilisateur est premium (simplifié)
 def is_user_premium(email):
     return email and email.endswith("@pro.fr")
 
-st.set_page_config(page_title="JobConseil – Assistant Droit du Travail", layout="wide")
+# 🔐 Authentification
+def login():
+    st.session_state["auth_mode"] = "login"
+    email = st.text_input("✉️ Ton e-mail", key="login_email")
+    if st.button("📩 Envoyer le lien de connexion"):
+        try:
+            supabase.auth.sign_in_with_otp({"email": email})
+            st.success("Lien de connexion envoyé. Vérifie ta boîte mail.")
+        except Exception as e:
+            st.error(f"Erreur d'envoi : {e}")
+
+def logout():
+    if st.button("🚪 Se déconnecter"):
+        st.session_state.pop("user_email", None)
+        st.success("Déconnecté avec succès.")
+
+# 🔁 Layout
+st.set_page_config(page_title="JobConseil – Assistant Droit du Travail", layout="centered")
 st.title("📘 JobConseil – Assistant Droit du Travail 🇫🇷")
 
-# Authentification
+# 🔑 Authentification utilisateur
 user_email = st.session_state.get("user_email", None)
+
+if not user_email:
+    st.info("🔐 Connecte-toi pour poser une question.")
+    login()
+else:
+    st.success(f"✅ Connecté en tant que : {user_email}")
+    logout()
+
+# 💎 Badge GPT
 if user_email:
     if is_user_premium(user_email):
         st.success("💎 Vous utilisez GPT‑4 Turbo (Premium)")
     else:
         st.info("🧠 Vous utilisez GPT‑3.5 (Gratuit)")
-else:
-    st.warning("🔐 Veuillez vous connecter pour accéder à l'assistant juridique.")
 
-# 🎨 CSS pour les cartes visuelles
+# 🎨 CSS design cartes
 st.markdown("""
 <style>
-.card { border-radius: 15px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin: 10px; transition: transform .3s; }
+.card { border-radius: 15px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin: 10px; transition: transform .3s; text-align: center; }
 .card:hover { transform: scale(1.03); }
 .card-free { background: #f9f9f9; border: 2px solid #ccc; }
 .card-prem { background: #fff8e1; border: 2px solid gold; }
 .container { display: flex; justify-content: center; flex-wrap: wrap; }
-.button-prem { padding: 12px 20px; background: gold; color: #222; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; }
 </style>
 """, unsafe_allow_html=True)
 
-# 🧠 Cartes GPT-3.5 / GPT-4
+# 🧠 Cartes GPT
 st.markdown("""
 <div class="container">
   <div class="card card-free">
@@ -50,42 +79,39 @@ st.markdown("""
       <li>Données mises à jour</li>
       <li>9,99 €/mois</li>
     </ul>
-    <button class="button-prem">Passer à GPT‑4 Premium</button>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-# 🔍 Choix du modèle
+# 📤 Requête GPT
 def get_gpt_model(email):
     return "gpt-4-turbo" if is_user_premium(email) else "gpt-3.5-turbo"
 
-# ⚙️ Requête à OpenAI
 def ask_gpt(question, model):
     try:
-        resp = openai.ChatCompletion.create(
+        response = openai.ChatCompletion.create(
             model=model,
             messages=[
-                {"role": "system", "content": "Tu es un assistant juridique spécialisé en droit du travail français. Réponds toujours clairement et simplement."},
+                {"role": "system", "content": "Tu es un assistant juridique spécialisé en droit du travail français. Réponds clairement, simplement et concrètement."},
                 {"role": "user", "content": question}
             ]
         )
-        return resp.choices[0].message.content
+        return response.choices[0].message.content
     except Exception as e:
         return f"❌ Erreur : {e}"
 
-# 📝 Zone de question juridique
-st.markdown("---")
-question = st.text_input("❓ Posez votre question sur vos droits (ex : licenciement, arrêt maladie...)")
-if st.button("💼 Obtenir une réponse juridique"):
-    if user_email and question:
-        model = get_gpt_model(user_email)
-        answer = ask_gpt(question, model)
-        st.success("✅ Réponse :")
-        st.markdown(answer)
-    else:
-        st.warning("Vous devez être connecté et saisir une question.")
+# 📥 Question juridique en temps réel
+question = st.text_input("❓ Pose ta question sur le droit du travail (arrêt maladie, licenciement...)")
 
-# 🔁 Bouton vers offres d’emploi
+if user_email and question:
+    model = get_gpt_model(user_email)
+    reponse = ask_gpt(question, model)
+    st.success("✅ Réponse de l’assistant :")
+    st.markdown(reponse)
+elif question and not user_email:
+    st.warning("🛑 Connecte-toi pour obtenir une réponse.")
+
+# 🔽 Bouton vers offres d'emploi
 st.markdown("""
 <div style="text-align:center; margin-top:40px;">
   <a href="#emploi" style="text-decoration:none;">
@@ -96,11 +122,11 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 📂 Section emploi en bas
+# 📂 Section emploi
 st.markdown('<h2 id="emploi">🔍 Offres d\'emploi (optionnel)</h2>', unsafe_allow_html=True)
 with st.expander("Rechercher un emploi via France Travail"):
-    metier = st.text_input("Métier recherché", "aide‑soignant")
+    metier = st.text_input("Métier recherché", "aide-soignant")
     lieu = st.text_input("Code postal ou commune", "28000")
     rayon = st.slider("Rayon (km)", min_value=0, max_value=100, value=20)
     if st.button("🔍 Rechercher les offres"):
-        st.info("🚧 Fonctionnalité de recherche d’emploi bientôt disponible.")
+        st.info("🚧 Fonctionnalité en cours de développement.")
