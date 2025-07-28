@@ -1,75 +1,100 @@
 import streamlit as st
-import requests
-import base64
+import openai
+from utils import is_user_premium
 
-st.set_page_config(page_title="JobConseil – Offres d'emploi", page_icon="💼")
+st.set_page_config(page_title="JobConseil – Assistant Droit du Travail", layout="wide")
+st.title("📘 JobConseil – Assistant Droit du Travail 🇫🇷")
 
-st.title("💼 JobConseil – Recherche d'offres d'emploi")
-st.markdown("Trouvez rapidement les dernières offres disponibles via France Travail")
-
-# --------------------------
-# Fonction pour récupérer le token France Travail
-# --------------------------
-def get_token_france_travail():
-    client_id = st.secrets["PE_CLIENT_ID"]
-    client_secret = st.secrets["PE_CLIENT_SECRET"]
-    credentials = f"{client_id}:{client_secret}"
-    encoded_credentials = base64.b64encode(credentials.encode()).decode()
-
-    url = "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire"
-    headers = {
-        "Authorization": f"Basic {encoded_credentials}",
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-    data = {
-        "grant_type": "client_credentials",
-        "scope": "api_offresdemploiv2 o2dsoffre"
-    }
-
-    response = requests.post(url, headers=headers, data=data)
-
-    if response.status_code == 200:
-        return response.json()["access_token"]
+# Authentification
+user_email = st.session_state.get("user_email", None)
+if user_email:
+    if is_user_premium(user_email):
+        st.success("💎 Vous utilisez GPT‑4 Turbo (Premium)")
     else:
-        st.error("❌ Erreur lors de la récupération du token")
-        st.code(response.text)
-        return None
+        st.info("🧠 Vous utilisez GPT‑3.5 (Gratuit)")
+else:
+    st.warning("🔐 Veuillez vous connecter pour accéder à l'assistant juridique.")
 
-# --------------------------
-# Interface utilisateur
-# --------------------------
-metier = st.text_input("🔤 Métier recherché", "aide-soignant")
-code_postal = st.text_input("📍 Code postal ou commune", "28000")
-rayon = st.slider("📏 Rayon de recherche (en km)", 0, 100, 20)
+# Styles CSS cartes
+st.markdown("""
+<style>
+.card { border-radius: 15px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin: 10px; transition: transform .3s; }
+.card:hover { transform: scale(1.03); }
+.card-free { background: #f9f9f9; border: 2px solid #ccc; }
+.card-prem { background: #fff8e1; border: 2px solid gold; }
+.container { display: flex; justify-content: center; flex-wrap: wrap; }
+.button-prem { padding: 12px 20px; background: gold; color: #222; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; }
+</style>
+""", unsafe_allow_html=True)
 
-if st.button("🔎 Rechercher les offres"):
-    token = get_token_france_travail()
+# Cartes GPT
+st.markdown("""
+<div class="container">
+  <div class="card card-free">
+    <h3>🧠 GPT‑3.5 Gratuit</h3>
+    <ul>
+      <li>Réponses rapides</li>
+      <li>Compréhension basique</li>
+      <li>Droit du travail limité</li>
+      <li>100% gratuit</li>
+    </ul>
+  </div>
+  <div class="card card-prem">
+    <h3>💎 GPT‑4 Turbo Premium</h3>
+    <ul>
+      <li>Réponses ultra précises</li>
+      <li>Analyse avancée</li>
+      <li>Données mises à jour</li>
+      <li>9,99 €/mois</li>
+    </ul>
+    <button class="button-prem">Passer à GPT‑4 Premium</button>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
-    if token:
-        st.success("✅ Connexion établie avec France Travail")
+# Fonctions GPT
+def get_gpt_model(email):
+    return "gpt-4-turbo" if is_user_premium(email) else "gpt-3.5-turbo"
 
-        headers = {"Authorization": f"Bearer {token}"}
-        params = {
-            "motsCles": metier,
-            "commune": code_postal,
-            "distance": rayon
-        }
+def ask_gpt(question, model):
+    resp = openai.ChatCompletion.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "Tu es un assistant juridique spécialisé en droit du travail français. Réponds toujours clairement et simplement."},
+            {"role": "user", "content": question}
+        ]
+    )
+    return resp.choices[0].message.content
 
-        url = "https://api.pole-emploi.io/partenaire/offresdemploi/v2/offres/search"
-        response = requests.get(url, headers=headers, params=params)
+st.markdown("---")
+# Zone de question juridique
+question = st.text_input("❓ Posez votre question sur vos droits (ex : licenciement, arrêt maladie...)")
+if st.button("💼 Obtenir une réponse juridique"):
+    if user_email and question:
+        model = get_gpt_model(user_email)
+        answer = ask_gpt(question, model)
+        st.success("✅ Réponse :")
+        st.markdown(answer)
+    else:
+        st.warning("Vous devez être connecté et saisir une question.")
 
-        if response.status_code == 200:
-            offres = response.json().get("resultats", [])
+# Bouton vers la section emploi
+st.markdown("""
+<div style="text-align:center; margin-top:40px;">
+  <a href="#emplois" style="text-decoration:none;">
+    <button style="padding:14px 24px; background:#0078d4; color:white; border:none; border-radius:8px; font-size:17px;">
+      🔎 Consulter les offres d'emploi
+    </button>
+  </a>
+</div>
+""", unsafe_allow_html=True)
 
-            if offres:
-                st.subheader("📋 Offres trouvées :")
-                for offre in offres:
-                    st.markdown(f"### {offre.get('intitule', 'Intitulé inconnu')}")
-                    st.write("📍", offre.get("lieuTravail", {}).get("libelle", "Lieu inconnu"))
-                    st.write("📝", offre.get("description", "")[:300] + "...")
-                    st.markdown("---")
-            else:
-                st.info("Aucune offre trouvée pour ces critères.")
-        else:
-            st.error("❌ Erreur lors de la récupération des offres")
-            st.code(response.text)
+# Section Emploi masquée
+st.markdown('<h2 id="emplois">🔍 Offres d\'emploi (optionnel)</h2>', unsafe_allow_html=True)
+with st.expander("Rechercher un emploi via France Travail"):
+    metier = st.text_input("Métier recherché", "aide‑soignant")
+    lieu = st.text_input("Code postal ou commune", "28000")
+    rayon = st.slider("Rayon (km)", min_value=0, max_value=100, value=20)
+    if st.button("🔍 Rechercher les offres"):
+        st.info("🚧 Fonctionnalité de recherche d’emploi bientôt disponible.")
+
