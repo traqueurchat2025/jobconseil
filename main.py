@@ -1,6 +1,9 @@
 import streamlit as st
 import openai
-from utils import is_user_premium
+
+# 🔐 Simulation simple : premium si email finit par "@pro.fr"
+def is_user_premium(email):
+    return email and email.endswith("@pro.fr")
 
 st.set_page_config(page_title="JobConseil – Assistant Droit du Travail", layout="wide")
 st.title("📘 JobConseil – Assistant Droit du Travail 🇫🇷")
@@ -15,7 +18,7 @@ if user_email:
 else:
     st.warning("🔐 Veuillez vous connecter pour accéder à l'assistant juridique.")
 
-# Styles CSS cartes
+# 🎨 CSS pour les cartes visuelles
 st.markdown("""
 <style>
 .card { border-radius: 15px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin: 10px; transition: transform .3s; }
@@ -27,7 +30,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Cartes GPT
+# 🧠 Cartes GPT-3.5 / GPT-4
 st.markdown("""
 <div class="container">
   <div class="card card-free">
@@ -52,22 +55,26 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Fonctions GPT
+# 🔍 Choix du modèle
 def get_gpt_model(email):
     return "gpt-4-turbo" if is_user_premium(email) else "gpt-3.5-turbo"
 
+# ⚙️ Requête à OpenAI
 def ask_gpt(question, model):
-    resp = openai.ChatCompletion.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "Tu es un assistant juridique spécialisé en droit du travail français. Réponds toujours clairement et simplement."},
-            {"role": "user", "content": question}
-        ]
-    )
-    return resp.choices[0].message.content
+    try:
+        resp = openai.ChatCompletion.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "Tu es un assistant juridique spécialisé en droit du travail français. Réponds toujours clairement et simplement."},
+                {"role": "user", "content": question}
+            ]
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        return f"❌ Erreur : {e}"
 
+# 📝 Zone de question juridique
 st.markdown("---")
-# Zone de question juridique
 question = st.text_input("❓ Posez votre question sur vos droits (ex : licenciement, arrêt maladie...)")
 if st.button("💼 Obtenir une réponse juridique"):
     if user_email and question:
@@ -78,10 +85,10 @@ if st.button("💼 Obtenir une réponse juridique"):
     else:
         st.warning("Vous devez être connecté et saisir une question.")
 
-# Bouton vers la section emploi
+# 🔁 Bouton vers offres d’emploi
 st.markdown("""
 <div style="text-align:center; margin-top:40px;">
-  <a href="#emplois" style="text-decoration:none;">
+  <a href="#emploi" style="text-decoration:none;">
     <button style="padding:14px 24px; background:#0078d4; color:white; border:none; border-radius:8px; font-size:17px;">
       🔎 Consulter les offres d'emploi
     </button>
@@ -89,12 +96,11 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Section Emploi masquée
-st.markdown('<h2 id="emplois">🔍 Offres d\'emploi (optionnel)</h2>', unsafe_allow_html=True)
+# 📂 Section emploi en bas
+st.markdown('<h2 id="emploi">🔍 Offres d\'emploi (optionnel)</h2>', unsafe_allow_html=True)
 with st.expander("Rechercher un emploi via France Travail"):
     metier = st.text_input("Métier recherché", "aide‑soignant")
     lieu = st.text_input("Code postal ou commune", "28000")
     rayon = st.slider("Rayon (km)", min_value=0, max_value=100, value=20)
     if st.button("🔍 Rechercher les offres"):
         st.info("🚧 Fonctionnalité de recherche d’emploi bientôt disponible.")
-
